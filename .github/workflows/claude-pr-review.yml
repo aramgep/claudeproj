@@ -55,64 +55,18 @@ jobs:
             
             return { prNumber, prData, files };
 
-      - name: Analyze PR with Claude
-        id: claude
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const files = JSON.parse('${{ steps.pr.outputs.files_changed }}');
-            
-            // Prepare files summary for Claude
-            const fileSummary = files
-              .filter(f => !f.patch.includes('node_modules'))
-              .slice(0, 20) // Limit to first 20 files
-              .map(f => `${f.filename} (+${f.additions}/-${f.deletions})`)
-              .join('\n');
-            
-            const reviewPrompt = `
-As a senior code reviewer, analyze this GitHub PR and provide constructive feedback:
-
-**PR Title**: ${{ steps.pr.outputs.pr_title }}
-**PR Description**: ${{ steps.pr.outputs.pr_body }}
-
-**Files Changed** (${files.length} total):
-\`\`\`
-${fileSummary}
-\`\`\`
-
-Please review for:
-1. ✅ **Code Quality** - Design patterns, naming, structure
-2. ✅ **Potential Issues** - Bugs, edge cases, performance concerns
-3. ✅ **Testing** - Test coverage, edge cases being tested
-4. ✅ **Documentation** - Clear comments, updated docs, migration guides
-5. ✅ **Best Practices** - Following project conventions and standards
-
-Format your review as:
-- **Summary**: 1-2 sentence overview
-- **Strengths**: What's done well
-- **Suggestions**: Actionable improvements
-- **Questions**: Clarifications needed
-- **Risk Level**: Low/Medium/High with explanation
-
-Be concise and constructive. Focus on high-impact items.
-`;
-
-            core.setOutput('review_prompt', reviewPrompt);
-            console.log('PR analysis prepared for Claude');
-
       - name: Post PR review comment
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = ${{ steps.pr.outputs.pr_number }};
+            const prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
             
             // Post initial comment indicating review in progress
             const { data: comment } = await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: `🤖 **Claude AI Review in Progress**\n\nAnalyzing PR for code quality, testing, documentation, and best practices...\n\n(This is automated - actual Claude analysis would be performed here with Anthropic API)`
+              body: '🤖 **Claude AI Review in Progress**\n\nAnalyzing PR for code quality, testing, documentation, and best practices...\n\n(This is automated - actual Claude analysis would be performed here with Anthropic API)'
             });
             
             core.setOutput('comment_id', comment.id);
@@ -122,36 +76,9 @@ Be concise and constructive. Focus on high-impact items.
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = ${{ steps.pr.outputs.pr_number }};
+            const prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
             
-            const reviewSummary = `
-## 📋 Claude AI Code Review
-
-### Summary
-PR implements feature enhancements with good separation of concerns.
-
-### ✅ Strengths
-- Clear component structure with proper TypeScript types
-- Tailwind CSS used appropriately for styling
-- Tests included for critical paths
-- Responsive design consideration
-
-### 💡 Suggestions
-1. Consider adding JSDoc comments to complex functions
-2. Ensure all new string literals are translatable
-3. Add error boundary for new async operations
-4. Review accessibility attributes (aria-labels) for new interactive elements
-
-### ❓ Questions
-1. Have you tested this with screen readers?
-2. Any performance implications with the new state management?
-
-### 🎯 Risk Level: **Low**
-Changes are well-scoped and backwards compatible.
-
----
-*Review conducted by Claude AI*
-`;
+            const reviewSummary = '## 📋 Claude AI Code Review\n\n### Summary\nPR implements feature enhancements with good separation of concerns.\n\n### ✅ Strengths\n- Clear component structure with proper TypeScript types\n- Tailwind CSS used appropriately for styling\n- Tests included for critical paths\n- Responsive design consideration\n\n### 💡 Suggestions\n1. Consider adding JSDoc comments to complex functions\n2. Ensure all new string literals are translatable\n3. Add error boundary for new async operations\n4. Review accessibility attributes (aria-labels) for new interactive elements\n\n### ❓ Questions\n1. Have you tested this with screen readers?\n2. Any performance implications with the new state management?\n\n### 🎯 Risk Level: **Low**\nChanges are well-scoped and backwards compatible.\n\n---\n*Review conducted by Claude AI - This is a simulated response. In a real implementation, you would call the Anthropic API.*';
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,

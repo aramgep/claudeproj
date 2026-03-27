@@ -66,29 +66,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const question = `${{ steps.context.outputs.question }}`;
-            const type = `${{ steps.context.outputs.type }}`;
-            const author = `${{ steps.context.outputs.author }}`;
-            const number = `${{ steps.context.outputs.number }}`;
-            const files = `${{ steps.files.outputs.files }}`;
+            const question = '${{ steps.context.outputs.question }}';
+            const type = '${{ steps.context.outputs.type }}';
+            const author = '${{ steps.context.outputs.author }}';
+            const number = '${{ steps.context.outputs.number }}';
             
-            const contextPrompt = `
-**GitHub ${type} #${number}**
-**Asked by**: @${author}
-
-**Question/Request**:
-\`\`\`
-${question}
-\`\`\`
-
-${files ? `**Files in PR**:\n${files}` : ''}
-
-Please provide a helpful, concise response. Include:
-- Direct answer to the question
-- Code examples if relevant
-- Links to documentation if needed
-- Any important context or considerations
-`;
+            const contextPrompt = 'GitHub ' + type + ' #' + number + '\nAsked by: @' + author + '\n\nQuestion/Request:\n' + question;
             
             core.setOutput('prompt', contextPrompt);
 
@@ -96,20 +79,15 @@ Please provide a helpful, concise response. Include:
         uses: actions/github-script@v7
         with:
           script: |
-            const number = ${{ steps.context.outputs.number }};
-            const isPR = ${{ steps.context.outputs.is_pr }};
-            
-            const route = isPR ? 'pulls' : 'issues';
+            const number = parseInt('${{ steps.context.outputs.number }}');
+            const author = '${{ steps.context.outputs.author }}';
+            const question = '${{ steps.context.outputs.question }}';
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: number,
-              body: `👋 Hi @${{ steps.context.outputs.author }}, Claude is reviewing your request!
-
-**Question**: ${{ steps.context.outputs.question }}
-
-*(Processing with Claude AI - response will be updated above)*`
+              body: '👋 Hi @' + author + ', Claude is reviewing your request!\n\n**Question**: ' + question + '\n\n*(Processing with Claude AI - response will be updated above)*'
             });
 
       - name: Post response
@@ -117,36 +95,9 @@ Please provide a helpful, concise response. Include:
         uses: actions/github-script@v7
         with:
           script: |
-            const number = ${{ steps.context.outputs.number }};
+            const number = parseInt('${{ steps.context.outputs.number }}');
             
-            const response = `## 🤖 Claude AI Response
-
-Based on your question about the UIGen project:
-
-### Answer
-For questions about code structure, architecture, or implementation approaches in this project, I can analyze:
-- React/TypeScript patterns
-- Component architecture
-- Tailwind CSS styling
-- Testing strategies
-- Database design
-- API design
-
-### How to use this
-Simply @mention me with:
-- **Code review requests**: Direct analysis of specific files
-- **Architecture questions**: How to structure new features
-- **Best practices**: Following project conventions
-- **Debugging help**: Analyzing error patterns
-- **Documentation**: Explaining how components work
-
-### Next Steps
-1. Share the specific code or question
-2. Provide context about what you're trying to achieve
-3. I'll analyze and provide actionable feedback
-
----
-*This is an automated response. For complex reviews, consider opening a discussion.*`;
+            const response = '## 🤖 Claude AI Response\n\nBased on your question about the UIGen project:\n\n### Answer\nFor questions about code structure, architecture, or implementation approaches in this project, I can analyze:\n- React/TypeScript patterns\n- Component architecture\n- Tailwind CSS styling\n- Testing strategies\n- Database design\n- API design\n\n### How to use this\nSimply @mention me with:\n- **Code review requests**: Direct analysis of specific files\n- **Architecture questions**: How to structure new features\n- **Best practices**: Following project conventions\n- **Debugging help**: Analyzing error patterns\n- **Documentation**: Explaining how components work\n\n### Next Steps\n1. Share the specific code or question\n2. Provide context about what you are trying to achieve\n3. I will analyze and provide actionable feedback\n\nThis is an automated response. For complex reviews, consider opening a discussion.';
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
