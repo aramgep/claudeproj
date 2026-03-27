@@ -1,0 +1,126 @@
+name: Smart PR Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  smart-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Analyze changed files
+        id: analysis
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            const categories = {
+              components: [],
+              styles: [],
+              tests: [],
+              config: [],
+              docs: [],
+              other: []
+            };
+            
+            files.forEach(file => {
+              if (file.filename.includes('components/')) categories.components.push(file.filename);
+              else if (file.filename.includes('globals.css') || file.filename.includes('.css')) categories.styles.push(file.filename);
+              else if (file.filename.includes('__tests__') || file.filename.includes('.test.')) categories.tests.push(file.filename);
+              else if (file.filename.includes('config') || file.filename.includes('.json')) categories.config.push(file.filename);
+              else if (file.filename.includes('README') || file.filename.includes('.md')) categories.docs.push(file.filename);
+              else categories.other.push(file.filename);
+            });
+            
+            const summary = {
+              hasComponents: categories.components.length > 0,
+              hasTests: categories.tests.length > 0,
+              hasStyles: categories.styles.length > 0,
+              hasDocs: categories.docs.length > 0,
+              components: categories.components,
+              tests: categories.tests
+            };
+            
+            core.setOutput('summary', JSON.stringify(summary));
+
+      - name: Check test coverage
+        id: coverage
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = JSON.parse('${{ steps.analysis.outputs.summary }}');
+            
+            const uncoveredComponents = summary.components.filter(
+              c => !summary.tests.some(t => {
+                const componentName = c.split('/').pop().replace(/\.(tsx?|jsx?)$/, '');
+                return t.includes(componentName);
+              })
+            );
+            
+            core.setOutput('uncovered_count', uncoveredComponents.length);
+            core.setOutput('uncovered_list', uncoveredComponents.join(', '));
+
+      - name: Post smart analysis
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = JSON.parse('${{ steps.analysis.outputs.summary }}');
+            const uncovered = parseInt('${{ steps.coverage.outputs.uncovered_count }}');
+            
+            let message = '## 📊 Smart PR Analysis\n\n';
+            
+            // Component analysis
+            if (summary.hasComponents) {
+              message += `### 🎨 Component Changes\n`;
+              message += `- ${summary.components.length} component(s) modified\n`;
+              message += `\n**Checklist:**\n`;
+              message += `- [ ] TypeScript types defined for all props\n`;
+              message += `- [ ] Tailwind CSS used for styling (no inline styles)\n`;
+              message += `- [ ] Component is responsive (mobile-first)\n`;
+              message += `- [ ] Accessibility attributes included (aria-*, role)\n`;
+              message += `- [ ] Component follows UIGen patterns\n\n`;
+            }
+            
+            // Test coverage analysis
+            if (summary.hasComponents && uncovered > 0) {
+              message += `### 🧪 Test Coverage\n`;
+              message += `⚠️ **${uncovered} component(s) may lack tests:**\n`;
+              message += `${summary.components.slice(0, 3).map(c => `- \`${c}\``).join('\\n')}\n\n`;
+              message += `Consider adding test files in \`__tests__/\` directory.\n\n`;
+            }
+            
+            // Style analysis
+            if (summary.hasStyles) {
+              message += `### 🎨 Styling Changes\n`;
+              message += `- Ensure changes follow Tailwind CSS conventions\n`;
+              message += `- No hardcoded colors or magic numbers\n\n`;
+            }
+            
+            // Documentation
+            if (!summary.hasDocs && summary.hasComponents) {
+              message += `### 📚 Documentation\n`;
+              message += `Consider updating README or component documentation if this is a major change.\n\n`;
+            }
+            
+            message += `---\n*Analysis by GitHub Actions - For questions, @mention @claude*`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: message
+            });

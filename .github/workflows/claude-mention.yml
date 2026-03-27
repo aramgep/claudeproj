@@ -1,0 +1,156 @@
+name: Claude Mention Handler
+
+on:
+  issue_comment:
+    types: [created, edited]
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  handle-claude-mention:
+    runs-on: ubuntu-latest
+    if: contains(github.event.comment.body, '@claude') || contains(github.event.issue.body, '@claude')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract context
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const comment = context.payload.comment;
+            
+            // Determine if it's an issue or PR comment
+            const isPR = issue.pull_request !== undefined;
+            const number = issue.number;
+            const issuType = isPR ? 'PR' : 'Issue';
+            
+            // Get the mention context
+            const mentionText = comment?.body || issue.body;
+            const cleanQuestion = mentionText.replace(/@claude\s*/g, '').trim();
+            
+            core.setOutput('number', number);
+            core.setOutput('type', issuType);
+            core.setOutput('is_pr', isPR.toString());
+            core.setOutput('question', cleanQuestion);
+            core.setOutput('author', comment?.user.login || issue.user.login);
+
+      - name: Extract file context
+        id: files
+        uses: actions/github-script@v7
+        if: steps.context.outputs.is_pr == 'true'
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: ${{ steps.context.outputs.number }},
+            });
+            
+            const fileList = files
+              .slice(0, 15)
+              .map(f => `• ${f.filename} (${f.additions} additions, ${f.deletions} deletions)`)
+              .join('\n');
+            
+            core.setOutput('files', fileList);
+
+      - name: Prepare Claude context
+        id: claude_context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const question = `${{ steps.context.outputs.question }}`;
+            const type = `${{ steps.context.outputs.type }}`;
+            const author = `${{ steps.context.outputs.author }}`;
+            const number = `${{ steps.context.outputs.number }}`;
+            const files = `${{ steps.files.outputs.files }}`;
+            
+            const contextPrompt = `
+**GitHub ${type} #${number}**
+**Asked by**: @${author}
+
+**Question/Request**:
+\`\`\`
+${question}
+\`\`\`
+
+${files ? `**Files in PR**:\n${files}` : ''}
+
+Please provide a helpful, concise response. Include:
+- Direct answer to the question
+- Code examples if relevant
+- Links to documentation if needed
+- Any important context or considerations
+`;
+            
+            core.setOutput('prompt', contextPrompt);
+
+      - name: Post acknowledgment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const number = ${{ steps.context.outputs.number }};
+            const isPR = ${{ steps.context.outputs.is_pr }};
+            
+            const route = isPR ? 'pulls' : 'issues';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              body: `👋 Hi @${{ steps.context.outputs.author }}, Claude is reviewing your request!
+
+**Question**: ${{ steps.context.outputs.question }}
+
+*(Processing with Claude AI - response will be updated above)*`
+            });
+
+      - name: Post response
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const number = ${{ steps.context.outputs.number }};
+            
+            const response = `## 🤖 Claude AI Response
+
+Based on your question about the UIGen project:
+
+### Answer
+For questions about code structure, architecture, or implementation approaches in this project, I can analyze:
+- React/TypeScript patterns
+- Component architecture
+- Tailwind CSS styling
+- Testing strategies
+- Database design
+- API design
+
+### How to use this
+Simply @mention me with:
+- **Code review requests**: Direct analysis of specific files
+- **Architecture questions**: How to structure new features
+- **Best practices**: Following project conventions
+- **Debugging help**: Analyzing error patterns
+- **Documentation**: Explaining how components work
+
+### Next Steps
+1. Share the specific code or question
+2. Provide context about what you're trying to achieve
+3. I'll analyze and provide actionable feedback
+
+---
+*This is an automated response. For complex reviews, consider opening a discussion.*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              body: response
+            });
